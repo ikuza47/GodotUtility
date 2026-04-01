@@ -15,20 +15,23 @@ var tileSize: Vector2i = Vector2i(1,1)
 ## The variable responsible for the tileset used in the class. 
 ## [br][i]It is parsed during initialization of [method init] from the parameters, if available.[/i]
 ## [br][method set_tileSet] | [method get_tileSet] | [method has_tileSet]
-var tileSet: TileSet
+var tileSet
 ## The variable responsible for the node with which the functions will interact.
 ## [br][i]During initialization [method init], a self-node is automatically set.[/i]
 ## [br][method set_tileNode] | [method get_tileNode] | [method has_tileNode]
 var tileNode: TileMapExtended = self
 
-enum Vectors2D {TYPE_VECTOR2, TYPE_VECTOR2I}
+enum VECTORS2D {TYPE_VECTOR2, TYPE_VECTOR2I}
 
 var generator: Generator = Generator.new()
+var pallete: Pallete = Pallete.new()
+
 
 var positionNode: Node2D = self
 
 # UTILS FUNC
 static func _vectorize2i(value):
+	print(value)
 	if _is_vector(value):
 		return Vector2i(value)
 
@@ -36,19 +39,26 @@ static func _round_decimal(value: float, decimal: int) -> float:
 	return float(round(int(value*pow(10, decimal)))/pow(10, decimal))
 
 static func _is_vector(value) -> bool:
-	return 1 if typeof(value) is Vectors2D else 0
+	return 1 if typeof(value) is VECTORS2D else 0
 
+static func _sum_array(array: Array) -> float:
+	var return_var: float = 0
+	for i in array:
+		return_var+=i
+	return return_var
 # INIT
 func _notification(what: int) -> void:
 	if what == 13:
 		print("sent init")
-		init()
+		self.init()
 # FUNC
-func init(node: TileMapExtended = self, type: FastNoiseLite.NoiseType = 0, seed: int = 0, frequency: float = 0.01):
+func init(node: TileMapExtended = self):
 	tileNode = node
-	if tileNode.tile_set:
-		tileSet = tileNode.tile_set
-		tileSize = tileNode.tile_set.tile_size
+	if self.tile_set != null:
+		self.tileSet = tileNode.tile_set
+		self.tileSize = tileNode.tile_set.tile_size
+		if pallete.id == -1:
+			pallete.fromTileSet(tileNode.tile_set, 0)
 	print("inited!")
 	test()
 # ===
@@ -98,30 +108,39 @@ func get_noises() -> Dictionary:
 
 # ===
 
+func place_tiles(pallete: Pallete):
+	pass
+
+# ===
+
 func update_tiles(Position:= positionNode, ChunkSize:= chunkSize):
 	var a = get_tilesetRange()
 
 # ===
 
 func test() -> void:
-	var a = Generator.new({Vector2i(0,0): 0.3})
-	var x = Vector2i(0,0)
-	a.set_noise_type(2)
+	pass
 
 # ===
 class Pallete:
 	var id: int = 0: 
-		get: return id
 		set(value): id = value 
 	var tiles: Array :
-		get: return tiles
 		set(value):
+			print(value)
 			tiles.clear()
 			for i in value:
 				tiles.append(TileMapExtended._vectorize2i(i))
 			tiles = tiles.filter(func(value): return value is Vector2i)
+	var chance: Array : 
+		set(value):
+			chance.clear()
+			for i in value: chance.append(clampf(i, 0.0, 1.0))
+			var temp = TileMapExtended._sum_array(chance)
+			for i in chance:
+				chance.set(chance.find(i),TileMapExtended._round_decimal(remap(i, 0, temp, 0, 1), 2))
 	
-	func _init(id: int = 0, tiles: Array = self.tiles) -> void:
+	func _init(id: int = -1, tiles: Array = self.tiles) -> void:
 		self.id = id
 		self.tiles = tiles
 	
@@ -130,17 +149,26 @@ class Pallete:
 			for i in tiles:
 				tiles.append(TileMapExtended._vectorize2i(i))
 			tiles = self.tiles.filter(func(value): return value is Vector2i)
-		if tiles is Vector2 or tiles is Vector2i: self.tiles.append(TileMapExtended._vectorize2i(tiles))
+		if typeof(tiles) is VECTORS2D: self.tiles.append(TileMapExtended._vectorize2i(tiles))
 	
 	func toString() -> String:
-		return "id: {id}, tiles: {tiles}".format({"id": self.id, "tiles": self.tiles})
+		return "id: {id}, tiles: {tiles}, chances: {chance}".format({"id": self.id, "tiles": self.tiles, "chance": self.chance})
 	
 	func toDictionary() -> Dictionary:
-		return {"id": self.id, "tiles": self.tiles}
+		return {"id": self.id, "tiles": self.tiles, "chance": self.chance}
 	
 	func fromDictionary(dictionary: Dictionary):
-		self.id = dictionary.get("id")
-		self.tiles = dictionary.get("tiles")
+		self.id = dictionary.get("id", 0)
+		self.tiles = dictionary.get("tiles", [Vector2i(0,0)])
+		self.chance = dictionary.get("chance", [1])
+	
+	func get_chance_to_tiles() -> Dictionary:
+		var temp: Dictionary = {}
+		for i in tiles:
+			if chance.size()-1 >= tiles.find(i): 
+				temp.set(i, chance[tiles.find(i)])
+			else: temp.set(i, 0)
+		return temp
 	
 	func fromTileSet(tileset: TileSet, AtlasID: int = 0):
 		self.id = AtlasID
@@ -154,17 +182,11 @@ class Generator:
 	var seed: int : set = set_seed
 	var noise_type: FastNoiseLite.NoiseType: set = set_noise_type
 	var frequency: float : set = set_frequency
-	var empty: bool : set = set_empty
-	var tiles: Dictionary : set = set_tiles
 	
-	func _init(tiles: Dictionary = {}) -> void:
-		self.tiles = tiles
 	
-	func setup(tiles: Dictionary, seed: int, frequency: float, empty: bool):
-		self.tiles = tiles
+	func setup(seed: int, frequency: float):
 		self.seed = seed
 		self.frequency = frequency
-		self.empty = empty
 	
 	func set_seed(value: int):
 		seed = value
@@ -172,10 +194,6 @@ class Generator:
 	func set_frequency(value: float):
 		frequency = value
 		noise.frequency = frequency
-	func set_empty(value):
-		empty = value
-	func set_tiles(value: Dictionary):
-		tiles = value
 	
 	func set_noise_type(NoiseType: FastNoiseLite.NoiseType):
 		noise_type = NoiseType
